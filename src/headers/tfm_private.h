@@ -5,6 +5,44 @@
 
 #include "tfm.h"
 
+/* Compiler compatibility macros */
+#if defined(__has_attribute)
+#  if __has_attribute(always_inline)
+#    define ATTR_ALWAYS_INLINE static inline __attribute__((always_inline))
+#  endif
+#elif defined(__GNUC__)
+#  define ATTR_ALWAYS_INLINE static inline __attribute__((always_inline))
+#endif
+
+#ifndef ATTR_ALWAYS_INLINE
+#  define ATTR_ALWAYS_INLINE static inline
+#endif
+
+#if defined(__has_attribute)
+#  if __has_attribute(optimize) && !defined(__clang__)
+#    define ATTR_OPTIMIZE_O3 __attribute__((optimize("O3")))
+#  endif
+#elif defined(__GNUC__) && !defined(__clang__) && \
+      (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))
+#  define ATTR_OPTIMIZE_O3 __attribute__((optimize("O3")))
+#endif
+
+#ifndef ATTR_OPTIMIZE_O3
+#  define ATTR_OPTIMIZE_O3
+#endif
+
+#if defined(__has_builtin)
+#  if __has_builtin(__builtin_constant_p)
+#    define CONSTANT_P(N) __builtin_constant_p((N))
+#  endif
+#elif defined(__GNUC__)
+#  define CONSTANT_P(N) __builtin_constant_p((N))
+#endif
+
+#ifndef CONSTANT_P
+#  define CONSTANT_P(n) (0)
+#endif
+
 /*
  * Private symbols
  * ---------------
@@ -19,6 +57,54 @@
 #endif
 
 /* VARIOUS LOW LEVEL STUFFS */
+#ifdef TFM_NO_STDLIB
+FP_PRIVATE void fp_memcpy(void *restrict dst, const void *restrict src, size_t n);
+FP_PRIVATE void fp_memset(void *restrict dst, unsigned char c, size_t n);
+
+#define toupper(C) _toupper_impl((C))
+ATTR_ALWAYS_INLINE int _toupper_impl(int c) {
+   return 'a' <= c && 'z' >= c ? c - ((int)'a' - (int)'A') : c;
+}
+
+#define memcpy(D, S, N) _memcpy_impl((D), (S), (N))
+ATTR_ALWAYS_INLINE void* _memcpy_impl(void *restrict _d, const void *restrict _s, size_t _n) {
+  uint8_t *dst = (uint8_t*)(_d); \
+  const uint8_t *src = (uint8_t*)(_s); \
+  size_t n = (size_t)(_n);
+  if (CONSTANT_P(n)) {
+    for (size_t i = 0; i < n; ++i) dst[i] = src[i];
+    return (void *)dst;
+  }
+
+  fp_memcpy(dst, src, n);
+  return (void *)dst;
+}
+
+/* The loop increment of 128 bytes was determined experimentally - it results
+ * in good inline code optimizations in both GCC and clang. */
+#define memset(D, C, N) _memset_impl((D), (C), (N))
+ATTR_ALWAYS_INLINE void *_memset_impl(void *_d, int _c, size_t _n) {
+   uint8_t *dst = (uint8_t*)(_d);
+   uint8_t c = (uint8_t)(_c);
+   size_t n = (size_t)(_n);
+   if (CONSTANT_P(n)) {
+      size_t b = n >> 7, r = n & 127;
+      for (size_t i = 0; i < b; ++i) {
+         size_t j = 0;
+         for (;j <  64; ++j) *dst++ = c;
+         for (;j < 128; ++j) *dst++ = c;
+      }
+      size_t i = 0;
+      if (r >  0) for (;i <  64 && i < r; ++i) *dst++ = c;
+      if (r > 64) for (;i < 128 && i < r; ++i) *dst++ = c;
+      return (void *)dst;
+   }
+
+   fp_memset(dst, c, n);
+   return (void *)dst;
+}
+#endif
+
 FP_PRIVATE void s_fp_add(const fp_int *a, const fp_int *b, fp_int *c);
 FP_PRIVATE void s_fp_sub(const fp_int *a, const fp_int *b, fp_int *c);
 FP_PRIVATE void fp_reverse(unsigned char *s, int len);

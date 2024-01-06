@@ -36,6 +36,8 @@ src/divide/fp_mod_d.c
 src/exptmod/fp_2expt.c
 src/exptmod/fp_exptmod.c
 src/misc/fp_ident.c
+src/misc/fp_memcpy.c
+src/misc/fp_memset.c
 src/misc/fp_rand.c
 src/misc/fp_set.c
 src/mont/fp_montgomery_calc_normalization.c
